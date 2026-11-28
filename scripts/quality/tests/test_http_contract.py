@@ -116,9 +116,7 @@ class HttpContractTest(unittest.TestCase):
                        and node.name == 'get_source_size')
         decorator = next(node for node in handler.decorator_list if isinstance(node, ast.Call)
                          and isinstance(node.func, ast.Attribute) and node.func.attr == 'get')
-        router = next(node.value for node in routes.body if isinstance(node, ast.Assign)
-                      and any(isinstance(target, ast.Name) and target.id == decorator.func.value.id
-                              for target in node.targets))
+        router = self.authenticated_scraper_router(routes, decorator)
         prefix = next(keyword.value.value for keyword in router.keywords if keyword.arg == 'prefix')
         path = prefix + decorator.args[0].value
         documented = [(route, item) for route, item in self.spec['paths'].items()
@@ -126,9 +124,6 @@ class HttpContractTest(unittest.TestCase):
         self.assertEqual([normalized(path)], [normalized(route) for route, _ in documented])
         operation = documented[0][1]['get']
         self.assertEqual([{'internalServiceToken': []}], operation['security'])
-        self.assertTrue(any(isinstance(node, ast.Name) and node.id == 'require_internal_service_token'
-                            for argument in handler.args.args if argument.annotation
-                            for node in ast.walk(argument.annotation)))
         declared_responses = ast.literal_eval(next(keyword.value for keyword in decorator.keywords
                                                   if keyword.arg == 'responses'))
         self.assertTrue({str(status) for status in declared_responses}.issubset(operation['responses']))
@@ -150,15 +145,14 @@ class HttpContractTest(unittest.TestCase):
                        and node.name == 'semantic_source_status')
         decorator = next(node for node in handler.decorator_list if isinstance(node, ast.Call)
                          and isinstance(node.func, ast.Attribute) and node.func.attr == 'get')
-        self.assertEqual('/semantic/source-status', decorator.args[0].value)
+        router = self.authenticated_scraper_router(routes, decorator)
+        prefix = next(keyword.value.value for keyword in router.keywords if keyword.arg == 'prefix')
+        self.assertEqual('/internal/v1/semantic/source-status', prefix + decorator.args[0].value)
         item = self.spec['paths']['/internal/v1/semantic/source-status']
         self.assertEqual('scraper', item['x-service'])
         self.assertEqual([{'url': 'http://scraper-api:8000'}], item['servers'])
         operation = item['get']
         self.assertEqual([{'internalServiceToken': []}], operation['security'])
-        self.assertTrue(any(isinstance(node, ast.Name) and node.id == 'require_internal_service_token'
-                            for argument in handler.args.args if argument.annotation
-                            for node in ast.walk(argument.annotation)))
         self.assertIn('401', operation['responses'])
         response_model = next((keyword.value for keyword in decorator.keywords
                                if keyword.arg == 'response_model'), handler.returns)
@@ -177,6 +171,16 @@ class HttpContractTest(unittest.TestCase):
         self.assertEqual(aliases, set(schema['required']))
         self.assertEqual(list(ast.literal_eval(fields['status'].annotation.slice)),
                          schema['properties']['status']['enum'])
+
+    def authenticated_scraper_router(self, routes, decorator):
+        """Comprueba la dependencia de autenticación del router que registra la ruta."""
+        router = next(node.value for node in routes.body if isinstance(node, ast.Assign)
+                      and any(isinstance(target, ast.Name) and target.id == decorator.func.value.id
+                              for target in node.targets))
+        dependencies = next((kw.value for kw in router.keywords if kw.arg == 'dependencies'), None)
+        self.assertIsInstance(dependencies, ast.List)
+        self.assertIn('Depends(require_internal_service_token)', [ast.unparse(dep) for dep in dependencies.elts])
+        return router
 
     def test_declared_status_and_record_properties(self):
         """Los códigos anotados y propiedades de records conservan su forma pública documentada."""

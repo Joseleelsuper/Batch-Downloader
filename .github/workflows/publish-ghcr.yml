@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*.*.*'
   pull_request:
     branches:
       - main
@@ -90,7 +92,7 @@ jobs:
 
   publish-manifests:
     name: Publish ${{ matrix.image }} manifest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-latest
     strategy:
@@ -118,14 +120,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish immutable and main manifests
+      - name: Publish immutable manifest
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ env.GHCR_OWNER }}/${{ env.IMAGE_PREFIX }}-${{ matrix.image }}
           SHA_TAG: sha-${{ github.sha }}
         run: |
+          tags=(--tag "${IMAGE}:${SHA_TAG}")
+          if [ "$GITHUB_REF" = refs/heads/main ]; then
+            tags+=(--tag "${IMAGE}:main")
+          fi
           docker buildx imagetools create \
-            --tag "${IMAGE}:${SHA_TAG}" \
-            --tag "${IMAGE}:main" \
+            "${tags[@]}" \
             "${IMAGE}:${SHA_TAG}-amd64" \
             "${IMAGE}:${SHA_TAG}-arm64"
 

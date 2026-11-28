@@ -12,6 +12,11 @@ SSH usa clave, con contraseña y acceso root desactivados.
    comprueba los dos manifiestos de cada imagen.
 3. `deploy-production.yml` fija en Coolify el commit y
    `GHCR_IMAGE_TAG=sha-<commit>`, despliega y ejecuta los smoke tests.
+
+Un tag de versión como `v1.0.0` publica igualmente las siete imágenes como
+`sha-<commit>`. Este evento conserva la etiqueta `main` y la versión activa
+en producción. Las notas de la release deben indicar el SHA completo para que
+el tribunal pueda arrancar el mismo corte desde Docker Compose.
 4. Si el despliegue o los smoke tests fallan, se intenta restaurar automáticamente
    el último commit y tag sanos; esto no revierte las migraciones de base de datos.
 
