@@ -7,9 +7,6 @@ preparar descargas y utilizar su cuenta con distintos métodos de interacción.
 La referencia de trabajo es [WCAG 2.2, nivel AA](https://www.w3.org/TR/WCAG22/).
 Esta declaración se refiere a la interfaz web mantenida en este repositorio.
 
-**No se ha evaluado la conformidad completa con WCAG.** Las comprobaciones existentes
-cubren recorridos concretos y no acreditan que toda la aplicación sea accesible.
-
 ## Estado de la evaluación
 
 La [guía de pruebas](docs/accessibility/README.md) recoge la matriz de recorridos,
