@@ -1,9 +1,9 @@
 # Producción en Oracle con Coolify
 
 La producción vive en `51.170.57.42` y Coolify la administra desde
-`https://deploy.batchdownloader.dev`. El único tráfico público permitido es TCP
-22/80/443. SSH está disponible desde cualquier IP, exclusivamente por clave,
-con contraseña y acceso root desactivados.
+`https://deploy.batchdownloader.dev`. La web está disponible por los puertos
+TCP 80 y 443; SSH y el panel de Coolify requieren acceso a la red Tailscale.
+SSH usa clave, con contraseña y acceso root desactivados.
 
 ## Flujo de una versión
 
@@ -73,7 +73,18 @@ SEMANTIC_MODELS_VOLUME_NAME=batch-downloader_semantic_models
 
 `GHCR_IMAGE_TAG` siempre debe ser `sha-` seguido del commit completo. Los
 secretos de GitHub requeridos son `COOLIFY_URL`, `COOLIFY_TOKEN` y
-`COOLIFY_APP_UUID`.
+`COOLIFY_APP_UUID`. El runner de despliegue también necesita `TS_OAUTH_CLIENT_ID`
+y `TS_AUDIENCE` del entorno `production`: identifican una identidad federada OIDC
+de Tailscale, limitada al workflow de despliegue de `main` y a la etiqueta
+`tag:github-deploy`. La identidad debe exigir el sujeto
+`repo:Joseleelsuper/Batch-Downloader:environment:production` y el claim
+`workflow_ref` con valor
+`Joseleelsuper/Batch-Downloader/.github/workflows/deploy-production.yml@refs/heads/main`.
+La política de la tailnet debe permitir a esa etiqueta solo
+TCP 443 y DNS TCP/UDP 53 hacia el VPS, sin una regla general que le conceda
+acceso a otros dispositivos. El DNS dividido de la tailnet debe resolver
+`deploy.batchdownloader.dev` hacia la IP Tailscale del VPS. La identidad y la
+política deben configurarse antes de activar este cambio en producción.
 
 Al arrancar, Alembic aplica `head` y Flyway aplica todas las migraciones pendientes
 incluidas en la imagen, sin números objetivo en el entorno. Las migraciones conservan
