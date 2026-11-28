@@ -574,10 +574,7 @@ class AppDescriptionEnricher:
                 )
             await self.catalog.mark_long_description_failed(
                 software_app_id=app.id,
-                input_hash=input_hash,
                 error=exc.reason,
-                source=exc.provider,
-                model=exc.model,
             )
             await self.logs.add(
                 phase="descriptor",

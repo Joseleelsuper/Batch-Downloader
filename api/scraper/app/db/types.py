@@ -1,4 +1,7 @@
-"""Adapta UUID Python a BINARY(16) en MySQL y a texto de 36 caracteres en otros dialectos."""
+"""Adapta UUID Python a BINARY(16) en MySQL y a texto de 36 caracteres en otros dialectos.
+
+Sirve para ejecutar los tests sin necesidad de dockenizar una isntancia mysql.
+"""
 import uuid
 from typing import Any
 

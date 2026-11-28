@@ -346,23 +346,13 @@ class CatalogRepository:
         software_app.updated_at = utc_now()
         software_app.version += 1
 
-    async def mark_long_description_failed(
-        self,
-        software_app_id: uuid.UUID,
-        input_hash: str,
-        error: str,
-        source: str | None = None,
-        model: str | None = None,
-    ) -> None:
+    async def mark_long_description_failed(self, software_app_id: uuid.UUID, error: str) -> None:
         """Guarda el error y estado fallido sin cambiar el texto ni su procedencia guardada.
         Aumenta la versión para que los observadores detecten el resultado del intento.
 
         Args:
             software_app_id: UUID de la aplicación propietaria.
-            input_hash: Huella de las entradas que originaron la generación.
             error: Resumen del fallo; se conserva un máximo de 1000 caracteres.
-            source: Proveedor o procedencia de la descripción.
-            model: Identificador del modelo utilizado, si se conoce.
         """
         software_app = await self.session.get(SoftwareApp, software_app_id)
         if not software_app:
