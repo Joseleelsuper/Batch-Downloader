@@ -21,7 +21,21 @@ Descarga y empaqueta varios instaladores en un solo trabajo.
 
 ## Inicio rápido
 
-Antes del primer arranque, copia `.env.example` como `.env` y cambia sus credenciales.
+Antes del primer arranque, ejecuta desde la raíz del clon el script de tu sistema.
+
+**Windows (PowerShell)**
+
+```powershell
+.\init-env.ps1
+```
+
+**Linux y macOS**
+
+```sh
+sh ./init-env.sh
+```
+
+Los scripts copian cada `.env.example` versionado a un `.env` en la misma carpeta, incluida la raíz. Si el `.env` ya existe, lo conservan. Después, configura tus credenciales locales en el `.env` raíz.
 
 El Compose GHCR obtiene todas sus variables del `.env` raíz y no carga las plantillas por servicio.
 
