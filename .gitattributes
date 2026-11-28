@@ -4,5 +4,6 @@ scripts/java/** text eol=lf
 api/scraper/scripts/docker-entrypoint.sh text eol=lf
 ops/backups/*.sh text eol=lf
 docker/rabbitmq/*.sh text eol=lf
+docker/minio/init.sh text eol=lf
 services/webapp/docker-entrypoint.d/*.sh text eol=lf
 /init-env.sh text eol=lf
