@@ -9,12 +9,6 @@ package es.ubu.batchdownloader.identity.domain;
  * @category Identidad
  */
 public enum UserRole {
-    /**
-     * Valor compartido que fija u s e r para el comportamiento del componente.
-     */
     USER,
-    /**
-     * Valor compartido que fija a d m i n para el comportamiento del componente.
-     */
     ADMIN
 }
