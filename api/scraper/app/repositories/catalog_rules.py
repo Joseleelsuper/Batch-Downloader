@@ -181,25 +181,17 @@ def is_replaceable_icon(value: str | None) -> bool:
     )
 
 
-def has_current_available_installer(
-    app: SoftwareApp,
-    now: datetime | None = None,
-) -> bool:
-    # ``now`` permanece en la firma para llamadores anteriores a la proyección
-    # persistente. El tiempo por sí solo ya no retira un candidato válido del catálogo.
+def has_current_available_installer(app: SoftwareApp) -> bool:
     """Busca una fuente directa o fallback válida con al menos una resolución de historial
     binario verificado.
-    La caducidad no interviene en esta comprobación de historial; el parámetro now se conserva
-    por compatibilidad.
+    El historial sigue contando una vez alcanzada la fecha de revalidación.
 
     Args:
         app: Aplicación con fuentes y resoluciones precargadas.
-        now: Instante UTC sin tzinfo; None usa el reloj actual donde se permite.
 
     Returns:
         True si existe ese historial de instalador.
     """
-    del now
     for source in app.sources:
         if source.resolution_status not in AVAILABLE_RESOLUTION_STATUSES:
             continue
