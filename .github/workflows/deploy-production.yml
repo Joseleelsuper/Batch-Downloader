@@ -15,6 +15,7 @@ on:
 permissions:
   contents: read
   actions: read
+  id-token: write
 
 concurrency:
   group: production
@@ -52,6 +53,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           python -m scripts.deployment.coolify_release --verify-only --release-sha "$RELEASE_SHA" --compose-file "$RUNNER_TEMP/release-compose.yml"
+
+      - name: Connect to the production tailnet
+        uses: tailscale/github-action@064b10558093f38325e838ddea35486bdc6b1d5c # v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:github-deploy
+          args: --accept-dns=true
+          ping: 100.122.77.98
 
       - name: Deploy, wait, smoke test and rollback on failure
         env:
