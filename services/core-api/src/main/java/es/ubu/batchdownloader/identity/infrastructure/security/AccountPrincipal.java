@@ -20,12 +20,13 @@ import org.springframework.security.core.userdetails.UserDetails;
  * @param displayUsername Nombre visible actual; la identidad persistida de sesión sigue siendo el
  *     UUID.
  * @param role Rol USER o ADMIN que determina el acceso permitido.
+ * @param credentialsVersion Versión de la contraseña comprobada al iniciar sesión.
  * @see es.ubu.batchdownloader.identity.infrastructure.security.CurrentAccount
  * @since 0.1.0
  * @version 0.1.0
  * @category Identidad
  */
-public record AccountPrincipal(UUID userId, String displayUsername, UserRole role)
+public record AccountPrincipal(UUID userId, String displayUsername, UserRole role, long credentialsVersion)
         implements Principal, UserDetails, Serializable {
     @Serial private static final long serialVersionUID = 2L;
 
@@ -44,6 +45,10 @@ public record AccountPrincipal(UUID userId, String displayUsername, UserRole rol
         }
     }
 
+    public AccountPrincipal(UUID userId, String displayUsername, UserRole role) {
+        this(userId, displayUsername, role, 0);
+    }
+
     /**
      * Proyecta UUID, nombre visible y rol de una cuenta previamente comprobada.
      *
@@ -51,7 +56,7 @@ public record AccountPrincipal(UUID userId, String displayUsername, UserRole rol
      * @return principal serializable sin credenciales.
      */
     public static AccountPrincipal from(UserAccount account) {
-        return new AccountPrincipal(account.id(), account.username(), account.role());
+        return new AccountPrincipal(account.id(), account.username(), account.role(), account.credentialsVersion());
     }
 
     /**

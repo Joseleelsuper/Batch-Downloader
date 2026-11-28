@@ -2,10 +2,10 @@ package es.ubu.batchdownloader.identity.infrastructure.security;
 
 import es.ubu.batchdownloader.common.UnauthorizedException;
 import es.ubu.batchdownloader.identity.application.PasswordPolicy;
+import es.ubu.batchdownloader.identity.application.UsernamePolicy;
 import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import es.ubu.batchdownloader.identity.domain.UserAccount;
 import es.ubu.batchdownloader.identity.domain.UserRole;
-import java.util.Locale;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -54,8 +54,10 @@ public class AccountAuthenticator {
      */
     public Authentication authenticateAdmin(String username, String rawPassword) {
         PasswordPolicy.requireSupportedForLogin(rawPassword);
-        String normalized = username.strip().toLowerCase(Locale.ROOT);
-        UserAccount account = users.findByNormalizedUsername(normalized).orElse(null);
+        String normalized = UsernamePolicy.normalize(username);
+        UserAccount account = users.findByNormalizedUsername(normalized)
+                .filter(candidate -> normalized.equals(candidate.normalizedUsername()))
+                .orElse(null);
         String encoded = account != null && account.passwordHash() != null
                 ? account.passwordHash()
                 : dummyHash;

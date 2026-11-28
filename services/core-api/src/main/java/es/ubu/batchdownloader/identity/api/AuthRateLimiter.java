@@ -1,6 +1,7 @@
 package es.ubu.batchdownloader.identity.api;
 
 import es.ubu.batchdownloader.common.RateLimitException;
+import es.ubu.batchdownloader.identity.application.UsernamePolicy;
 import es.ubu.batchdownloader.identity.application.port.AuthAttemptBudget;
 import java.time.Duration;
 import java.nio.charset.StandardCharsets;
@@ -36,7 +37,8 @@ class AuthRateLimiter {
     }
 
     void adminLogin(String ip, String username) {
-        require("admin-login", normalizeIp(ip) + '\u0000' + normalizeIdentity(username), loginLimit, 60);
+        require("admin-login-ip", normalizeIp(ip), loginLimit, 60);
+        require("admin-login-account", UsernamePolicy.normalize(username), loginLimit, 60);
     }
 
     void magicLinkRequest(String ip, String email) {

@@ -40,6 +40,7 @@ public final class UserAccount {
      * Hash de contraseña almacenado, nunca la contraseña original.
      */
     private String passwordHash;
+    private long credentialsVersion;
     /**
      * Indica que se ha confirmado el control del correo de la cuenta.
      */
@@ -82,6 +83,7 @@ public final class UserAccount {
      *     recursos.
      * @param createdAt Instante de creación original del agregado.
      * @param updatedAt Instante del último cambio de la cuenta.
+     * @param credentialsVersion Versión de las credenciales administrativas.
      * @param version Versión persistida utilizada para detectar escrituras concurrentes.
      */
     private UserAccount(
@@ -96,6 +98,7 @@ public final class UserAccount {
             boolean enabled,
             Instant createdAt,
             Instant updatedAt,
+            long credentialsVersion,
             long version) {
         this.id = Objects.requireNonNull(id);
         this.username = requireText(username, "username");
@@ -115,6 +118,7 @@ public final class UserAccount {
         this.enabled = enabled;
         this.createdAt = Objects.requireNonNull(createdAt);
         this.updatedAt = Objects.requireNonNull(updatedAt);
+        this.credentialsVersion = credentialsVersion;
         this.version = version;
     }
 
@@ -137,7 +141,7 @@ public final class UserAccount {
             Instant now) {
         return new UserAccount(
                 UUID.randomUUID(), username, normalizedUsername, email, normalizedEmail, null,
-                false, UserRole.USER, true, now, now, 0);
+                false, UserRole.USER, true, now, now, 0, 0);
     }
 
     /**
@@ -161,7 +165,7 @@ public final class UserAccount {
             Instant now) {
         return new UserAccount(
                 UUID.randomUUID(), username, normalizedUsername, email, normalizedEmail, passwordHash,
-                true, UserRole.ADMIN, true, now, now, 0);
+                true, UserRole.ADMIN, true, now, now, 1, 0);
     }
 
     /**
@@ -181,6 +185,7 @@ public final class UserAccount {
      *     recursos.
      * @param createdAt Instante de creación original del agregado.
      * @param updatedAt Instante del último cambio de la cuenta.
+     * @param credentialsVersion Versión de las credenciales administrativas.
      * @param version Versión persistida utilizada para detectar escrituras concurrentes.
      * @return agregado de la cuenta.
      */
@@ -196,9 +201,10 @@ public final class UserAccount {
             boolean enabled,
             Instant createdAt,
             Instant updatedAt,
+            long credentialsVersion,
             long version) {
         return new UserAccount(id, username, normalizedUsername, email, normalizedEmail, passwordHash,
-                emailVerified, role, enabled, createdAt, updatedAt, version);
+                emailVerified, role, enabled, createdAt, updatedAt, credentialsVersion, version);
     }
 
     /**
@@ -220,6 +226,7 @@ public final class UserAccount {
     public void changePassword(String encodedPassword, Instant now) {
         if (role != UserRole.ADMIN) throw new IllegalStateException("USER accounts have no password");
         passwordHash = requireText(encodedPassword, "encodedPassword");
+        credentialsVersion = Math.incrementExact(credentialsVersion);
         updatedAt = Objects.requireNonNull(now);
     }
 
@@ -287,6 +294,8 @@ public final class UserAccount {
      * @return Hash de contraseña almacenado, nunca la contraseña original.
      */
     public String passwordHash() { return passwordHash; }
+
+    public long credentialsVersion() { return credentialsVersion; }
     /**
      * Indica que se ha confirmado el control del correo de la cuenta.
      *

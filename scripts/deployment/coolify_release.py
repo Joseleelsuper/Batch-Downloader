@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from collections.abc import Mapping, Sequence
@@ -25,7 +26,7 @@ FAILURE_STATES = frozenset(
     {"failed", "failure", "cancelled", "canceled", "cancelled-by-user", "error"}
 )
 
-REQUIRED_VALUES = frozenset(
+REQUIRED_SECRETS_AND_SETTINGS = frozenset(
     {
         "GHCR_REGISTRY",
         "GHCR_OWNER",
@@ -58,10 +59,16 @@ REQUIRED_VALUES = frozenset(
         "SEMANTIC_MODELS_VOLUME_NAME",
     }
 )
-REQUIRED_VALUES |= frozenset(re.findall(
-    r"(?<!\$)\$\{([A-Z][A-Z0-9_]*):\?[^}]*\}",
+
+def required_compose_values(compose: str) -> frozenset[str]:
+    return REQUIRED_SECRETS_AND_SETTINGS | frozenset(re.findall(
+        r"(?<!\$)\$\{([A-Z][A-Z0-9_]*):\?[^}]*\}", compose,
+    ))
+
+
+REQUIRED_VALUES = required_compose_values(
     (Path(__file__).resolve().parents[2] / "docker-compose.ghcr.yml").read_text(encoding="utf-8"),
-))
+)
 
 FIXED_PRODUCTION_VALUES = {
     "GHCR_REGISTRY": "ghcr.io",
@@ -204,9 +211,11 @@ class CoolifyClient:
 def validate_environment(
     values: Mapping[str, str],
     expected_tag: str | None = None,
+    *,
+    required_values: frozenset[str] = REQUIRED_VALUES,
 ) -> None:
     """Rechaza secretos vacíos y cualquier desviación de la política de producción."""
-    missing = sorted(key for key in REQUIRED_VALUES if not values.get(key, "").strip())
+    missing = sorted(key for key in required_values if not values.get(key, "").strip())
     if missing:
         raise ReleaseError(f"Variables de producción vacías o ausentes: {', '.join(missing)}")
     wrong = [
@@ -280,13 +289,14 @@ def perform_release(
     timeout: float = 900,
     interval: float = 10,
     smoke_timeout: float = 180,
+    required_values: frozenset[str] = REQUIRED_VALUES,
 ) -> None:
     if not SHA_PATTERN.fullmatch(release_sha):
         raise ReleaseError("RELEASE_SHA debe ser un commit hexadecimal de 40 caracteres")
     target = ReleaseState(release_sha, f"sha-{release_sha}")
     application = client.application()
     values = client.environment()
-    validate_environment(values)
+    validate_environment(values, required_values=required_values)
     previous = ReleaseState(str(application.get("git_commit_sha", "")), values["GHCR_IMAGE_TAG"])
     baseline_urls = tuple(url for url in urls if urlsplit(url).path != "/api/v1/locales/en")
 
@@ -298,7 +308,7 @@ def perform_release(
         deploy_state(client, target, timeout=timeout, interval=interval)
         updated_values = dict(values)
         updated_values["GHCR_IMAGE_TAG"] = target.image_tag
-        validate_environment(updated_values, target.image_tag)
+        validate_environment(updated_values, target.image_tag, required_values=required_values)
         wait_for_smoke(urls, timeout=smoke_timeout, interval=interval)
     except Exception as deployment_error:
         if not previous.rollback_capable or previous == target:
@@ -320,6 +330,53 @@ def perform_release(
     print(f"Versión {target.image_tag} desplegada y validada.")
 
 
+def verified_release_compose(release_sha: str) -> str:
+    """Lee el Compose de una versión publicada desde la rama protegida."""
+    if not SHA_PATTERN.fullmatch(release_sha):
+        raise ReleaseError("RELEASE_SHA debe ser un commit hexadecimal de 40 caracteres")
+
+    kind = subprocess.run(
+        ["git", "cat-file", "-t", release_sha], capture_output=True, text=True, check=False,
+    )
+    if kind.returncode != 0 or kind.stdout.strip() != "commit" or subprocess.run(
+        ["git", "merge-base", "--is-ancestor", release_sha, "HEAD"], check=False,
+    ).returncode != 0:
+        raise ReleaseError("La versión solicitada no pertenece al historial de main")
+
+    repository = required_setting("GITHUB_REPOSITORY")
+    query = urlencode({"branch": "main", "event": "push", "status": "success", "head_sha": release_sha})
+    request = Request(
+        f"https://api.github.com/repos/{repository}/actions/workflows/publish-ghcr.yml/runs?{query}",
+        headers={
+            "Authorization": f"Bearer {required_setting('GH_TOKEN')}",
+            "Accept": "application/vnd.github+json",
+        },
+    )
+    try:
+        with urlopen(request, timeout=20) as response:
+            runs = json.load(response)["workflow_runs"]
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        raise ReleaseError("No se pudo comprobar la publicación en GHCR") from error
+    if not isinstance(runs, list) or not any(
+        isinstance(run, dict)
+        and run.get("head_sha") == release_sha
+        and run.get("head_branch") == "main"
+        and run.get("event") == "push"
+        and run.get("conclusion") == "success"
+        and isinstance(run.get("head_repository"), dict)
+        and run["head_repository"].get("full_name") == repository
+        for run in runs
+    ):
+        raise ReleaseError("La versión no tiene una publicación satisfactoria desde main")
+    try:
+        return subprocess.run(
+            ["git", "show", f"{release_sha}:docker-compose.ghcr.yml"],
+            capture_output=True, encoding="utf-8", check=True,
+        ).stdout
+    except subprocess.CalledProcessError as error:
+        raise ReleaseError("La versión publicada no contiene el Compose de producción") from error
+
+
 def required_setting(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
@@ -330,6 +387,8 @@ def required_setting(name: str) -> str:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release-sha", default=os.environ.get("RELEASE_SHA", ""))
+    parser.add_argument("--compose-file", type=Path, required=True)
+    parser.add_argument("--verify-only", action="store_true")
     parser.add_argument("--timeout", type=float, default=900)
     parser.add_argument("--poll-interval", type=float, default=10)
     parser.add_argument("--smoke-timeout", type=float, default=180)
@@ -340,6 +399,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     try:
+        if arguments.verify_only:
+            arguments.compose_file.write_text(verified_release_compose(arguments.release_sha), encoding="utf-8")
+            return 0
+        required_values = required_compose_values(arguments.compose_file.read_text(encoding="utf-8"))
         client = CoolifyClient(
             required_setting("COOLIFY_URL"),
             required_setting("COOLIFY_TOKEN"),
@@ -352,6 +415,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             timeout=arguments.timeout,
             interval=arguments.poll_interval,
             smoke_timeout=arguments.smoke_timeout,
+            required_values=required_values,
         )
     except (OSError, ReleaseError) as exception:
         print(f"ERROR: {exception}", file=sys.stderr)

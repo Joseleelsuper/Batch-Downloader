@@ -43,6 +43,17 @@ class AccountAuthenticatorTest {
     }
 
     @Test
+    void requiresTheStoredNormalizedNameToMatchTheLoginName() {
+        UserAccount admin = UserAccount.bootstrapAdmin(
+                "admin", "admin", "admin@example.test", "admin@example.test", "hash", Instant.EPOCH);
+        when(users.findByNormalizedUsername("other")).thenReturn(Optional.of(admin));
+
+        assertThatThrownBy(() -> authenticator.authenticateAdmin("other", "password"))
+                .isInstanceOf(UnauthorizedException.class);
+        Mockito.verify(passwords).matches("password", "dummy-hash");
+    }
+
+    @Test
     void usesTheDummyHashForMissingAdminAccounts() {
         when(users.findByNormalizedUsername("missing")).thenReturn(Optional.empty());
         when(passwords.matches("password", "dummy-hash")).thenReturn(false);

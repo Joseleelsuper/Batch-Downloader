@@ -18,6 +18,7 @@ import es.ubu.batchdownloader.identity.application.port.UserAccountStore;
 import es.ubu.batchdownloader.identity.domain.UserRole;
 import es.ubu.batchdownloader.identity.infrastructure.security.AccountPrincipal;
 import es.ubu.batchdownloader.identity.infrastructure.security.SecurityConfig;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -284,11 +285,24 @@ class AdminAppSecurityTest {
                         "scope", "manual", "matched", 2, "enqueued", 1, "alreadyActive", 1));
     }
 
-    private static RequestPostProcessor administrator() {
-        AccountPrincipal principal = new AccountPrincipal(
-                UUID.fromString("00000000-0000-0000-0000-000000000099"),
-                "admin",
-                UserRole.ADMIN);
+    @Test
+    void oldAdministratorSessionsRequireAuthenticationAgain() throws Exception {
+        var account = es.ubu.batchdownloader.identity.domain.UserAccount.bootstrapAdmin(
+                "admin", "admin", "admin@example.test", "admin@example.test", "test-hash", Instant.EPOCH);
+        var principal = AccountPrincipal.from(account);
+        account.changePassword("rotated-test-hash", Instant.EPOCH.plusSeconds(1));
+        when(users.findById(account.id())).thenReturn(java.util.Optional.of(account));
+        mvc.perform(get("/api/v1/admin/audit").with(authentication(
+                        UsernamePasswordAuthenticationToken.authenticated(principal, null, principal.getAuthorities()))))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private RequestPostProcessor administrator() {
+        var account = es.ubu.batchdownloader.identity.domain.UserAccount.bootstrapAdmin(
+                "admin", "admin", "admin@example.test", "admin@example.test", "test-hash", Instant.EPOCH);
+        UUID administratorId = UUID.fromString("00000000-0000-0000-0000-000000000099");
+        when(users.findById(administratorId)).thenReturn(java.util.Optional.of(account));
+        AccountPrincipal principal = new AccountPrincipal(administratorId, "admin", UserRole.ADMIN, 1);
         return authentication(UsernamePasswordAuthenticationToken.authenticated(
                 principal, "", principal.getAuthorities()));
     }
