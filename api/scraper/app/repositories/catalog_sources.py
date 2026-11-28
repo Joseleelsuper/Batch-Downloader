@@ -387,8 +387,6 @@ class CatalogSourceStore:
             )
             .where(DownloadSource.software_app_id == software_app_id)
             .where(DownloadSource.operating_system == "windows")
-            # Las filas creadas antes de introducir UNKNOWN todavía pueden reanudarse
-            # con seguridad; las filas nuevas nunca infieren x86_64 sin evidencias.
             .where(DownloadSource.architecture.in_(["UNKNOWN", "x86_64"]))
             .order_by(case((DownloadSource.architecture == "UNKNOWN", 0), else_=1))
             .limit(1)
