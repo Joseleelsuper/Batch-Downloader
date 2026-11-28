@@ -132,21 +132,28 @@ El contrato para herramientas de IA está versionado en [`shared/contracts/opena
 | `POST` | `/api/v1/auth/magic-link/confirm`, `/api/v1/auth/logout` | Público | Consume el enlace o cierra la sesión de usuario. |
 | `GET` | `/api/v1/auth/me` | Público | Devuelve la sesión actual o `204`. |
 | `GET`, `PATCH` | `/api/v1/users/me` | `USER` | Consulta o actualiza el perfil propio. |
+| `DELETE` | `/api/v1/users/me` | `USER` | Solicita la eliminación de la cuenta y sus datos. |
 | `GET` | `/api/v1/users/me/dashboard`, `/api/v1/users/me/downloads` | `USER` | Consulta el resumen y el historial propios. |
-| `GET`, `POST` | `/api/v1/users/me/bundles` | `USER` | Lista o crea bundles privados propios. |
+| `GET`, `POST`, `DELETE` | `/api/v1/users/me/bundles` | `USER` | Lista bundles propios, crea uno privado o elimina todos los propios de la visibilidad indicada. |
+| `GET`, `POST` | `/api/v1/users/me/bundles/custom-tags` | `USER` | Lista o añade etiquetas compartidas para bundles. |
 | `GET`, `PATCH`, `DELETE` | `/api/v1/users/me/bundles/{bundleId}` | `USER` | Consulta, actualiza o elimina un bundle propio. |
+| `GET`, `POST` | `/api/v1/users/me/software-requests` | `USER` | Lista las solicitudes propias o propone software para el catálogo. |
+| `DELETE` | `/api/v1/users/me/software-requests/{requestId}` | `USER` | Cancela una solicitud propia pendiente. |
 | `GET` | `/api/v1/apps`, `/api/v1/apps/stats`, `/api/v1/apps/facets` | Público | Busca aplicaciones y obtiene estadísticas o facetas. |
 | `GET` | `/api/v1/apps/{appId}` | Público | Obtiene el detalle de una aplicación. |
 | `GET` | `/api/v1/bundles`, `/api/v1/bundles/{bundleId}` | Público | Lista bundles visibles u obtiene uno visible/propio. |
 | `GET` | `/api/v1/bundles/catalog/facets` | Público | Etiquetas y creadores compatibles con la búsqueda de bundles. |
 | `PUT`, `DELETE` | `/api/v1/bundles/{bundleId}/star` | Cuenta activa + CSRF | Añade o retira una estrella por cuenta; los privados no admiten votos. |
 | `POST` | `/api/v1/download-jobs` | Público | Crea un trabajo y asigna su propietario. |
+| `POST` | `/api/v1/download-jobs/linux-preview` | Público | Revisa la compatibilidad y las dependencias de Linux antes de crear un trabajo. |
 | `GET`, `DELETE` | `/api/v1/download-jobs/{jobId}` | Propietario | Consulta o cancela un trabajo. |
 | `GET` | `/api/v1/download-jobs/{jobId}/events` | Propietario | Emite el progreso por SSE. |
 | `GET`, `HEAD` | `/api/v1/download-jobs/{jobId}/file` | Propietario | Entrega ZIP por streaming 200/206 y admite un rango; HEAD consulta metadatos. |
 | `GET` | `/api/v1/download-jobs/{jobId}/file-link` | Propietario | Devuelve la ruta del archivo del mismo origen. |
-| `POST` | `/api/v1/download-jobs/{jobId}/activity`, `/complete` | Propietario + CSRF | Registra espera/guardado y confirma automáticamente el archivo cerrado para limpiar. |
+| `POST` | `/api/v1/download-jobs/{jobId}/activity`, `/api/v1/download-jobs/{jobId}/complete` | Propietario + CSRF | Registra espera/guardado y confirma automáticamente el archivo cerrado para limpiar. |
 | `GET` | `/api/v1/locales/{locale}` | Público | Devuelve el catálogo publicado del idioma solicitado. |
+| `GET` | `/api/v1/seo/metadata`, `/api/v1/seo/html`, `/api/v1/seo/image` | Público | Sirve metadatos, HTML inicial y tarjetas PNG de páginas públicas. |
+| `GET` | `/api/v1/seo/sitemap.xml`, `/api/v1/seo/sitemap/{group}/{page}.xml` | Público | Sirve el índice y las páginas del mapa del sitio. |
 
 </details>
 
@@ -158,14 +165,20 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | Método | Ruta | Permiso | Descripción |
 | --- | --- | --- | --- |
 | `POST` | `/api/v1/admin/auth/login` | Público | Abre una sesión administrativa. |
-| `GET`, `POST` | `/api/v1/admin/auth/me`, `/api/v1/admin/auth/logout` | `ADMIN` | Consulta o cierra la sesión administrativa. |
+| `GET` | `/api/v1/admin/auth/me` | `ADMIN` | Consulta la sesión administrativa. |
+| `POST` | `/api/v1/admin/auth/logout` | `ADMIN` | Cierra la sesión administrativa. |
 | `GET`, `POST` | `/api/v1/admin/bundles` | `ADMIN` | Lista o crea bundles administrados. |
+| `GET`, `POST` | `/api/v1/admin/bundles/custom-tags` | `ADMIN` | Lista o añade etiquetas compartidas para bundles. |
 | `PATCH`, `DELETE` | `/api/v1/admin/bundles/{bundleId}` | `ADMIN` | Actualiza o elimina un bundle administrado. |
+| `GET` | `/api/v1/admin/software-requests` | `ADMIN` | Lista las solicitudes de software y permite filtrarlas por estado. |
+| `PATCH` | `/api/v1/admin/software-requests/{requestId}` | `ADMIN` | Registra la decisión sobre una solicitud de software. |
 | `GET`, `POST`, `DELETE` | `/api/v1/admin/apps` | `ADMIN` | Lista, crea o elimina todo el catálogo de aplicaciones. |
 | `GET` | `/api/v1/admin/apps/export.csv` | `ADMIN` | Exporta el catálogo en CSV con las columnas `tags` y `editor`; las etiquetas se separan con punto y coma. |
 | `PATCH`, `DELETE` | `/api/v1/admin/apps/{appId}` | `ADMIN` | Actualiza o elimina una aplicación. |
 | `PUT` | `/api/v1/admin/apps/{appId}/tags` | `ADMIN` | Reemplaza sus etiquetas. |
 | `PATCH` | `/api/v1/admin/apps/{appId}/sources/{sourceId}` | `ADMIN` | Actualiza una fuente de descarga. |
+| `GET`, `PUT` | `/api/v1/admin/apps/{appId}/linux/sources/{sourceRef}/profile` | `ADMIN` | Consulta o guarda el perfil de instalación Linux de una fuente. |
+| `GET`, `PUT` | `/api/v1/admin/apps/{appId}/linux/dependencies` | `ADMIN` | Consulta o guarda las dependencias Linux de una aplicación. |
 | `POST` | `/api/v1/admin/apps/{appId}/generate-description` | `ADMIN` | Encola la generación de descripción. |
 | `GET` | `/api/v1/admin/apps/absence-verifications/summary` | `ADMIN` | Resume ausencias verificadas y pendientes. |
 | `GET`, `POST` | `/api/v1/admin/apps/{appId}/absence-verification` | `ADMIN` | Consulta o confirma la ausencia de instaladores. |
@@ -174,12 +187,15 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | `GET` | `/api/v1/admin/apps/{appId}/manual-installer-inspections/{inspectionId}` | `ADMIN` | Consulta una inspección. |
 | `POST` | `/api/v1/admin/apps/{appId}/manual-installer-inspections/{inspectionId}/apply` | `ADMIN` | Revalida y publica sus resultados. |
 | `POST` | `/api/v1/admin/app-discoveries` | `ADMIN` | Analiza una web oficial. |
-| `GET`, `POST` | `/api/v1/admin/app-discoveries/{discoveryId}`, `/api/v1/admin/app-discoveries/{discoveryId}/apply` | `ADMIN` | Consulta o aplica un descubrimiento. |
+| `GET` | `/api/v1/admin/app-discoveries/{discoveryId}` | `ADMIN` | Consulta un descubrimiento. |
+| `POST` | `/api/v1/admin/app-discoveries/{discoveryId}/apply` | `ADMIN` | Aplica un descubrimiento. |
 | `GET`, `POST` | `/api/v1/admin/scraper/runs` | `ADMIN` | Lista o crea ejecuciones del scraper. |
 | `GET` | `/api/v1/admin/scraper/current`, `/api/v1/admin/scraper/logs`, `/api/v1/admin/scraper/queues`, `/api/v1/admin/scraper/event` | `ADMIN` | Consulta ejecución, logs, colas o el último evento. |
+| `GET` | `/api/v1/admin/scraper/failed-items` | `ADMIN` | Lista los elementos del pipeline que siguen fallidos. |
 | `POST` | `/api/v1/admin/scraper/queues/recover-stuck`, `/api/v1/admin/scraper/queues/retry-failed`, `/api/v1/admin/scraper/queues/prune-terminal` | `ADMIN` | Recupera, reintenta o limpia elementos de cola. |
 | `POST` | `/api/v1/admin/scraper/commands` | `ADMIN` | Envía un comando durable al scraper. |
 | `POST` | `/api/v1/admin/scraper/descriptions/enqueue-missing` | `ADMIN` | Encola descripciones ausentes. |
+| `POST` | `/api/v1/admin/scraper/descriptions/regenerate` | `ADMIN` | Solicita la regeneración de descripciones por procedencia. |
 | `GET` | `/api/v1/admin/audit` | `ADMIN` | Consulta la auditoría administrativa. |
 | `GET` | `/api/v1/admin/semantic/overview` | `ADMIN` | Consulta salud, modelo aprovisionado, cobertura e indexador. |
 | `WS` | `/api/v1/admin/scraper/ws` | `ADMIN` | Notifica cambios del scraper. |
@@ -193,6 +209,7 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | --- | --- | --- | --- |
 | Core | `POST /internal/v1/download-jobs/{jobId}/item-metadata` | Interno | Entrega al worker metadatos seguros de items fallidos. |
 | Core | `POST /internal/v1/download-jobs/{jobId}/storage` | Interno | Reserva global FIFO, identificada por el intento del worker. |
+| Core | `GET /internal/v1/semantic/bundles/source-status`, `/internal/v1/semantic/bundles/documents` | Interno | Expone la revisión y los documentos de bundles públicos al indexador. |
 | Download Worker | `GET /internal/v1/storage/inventory`, `DELETE /internal/v1/jobs/{jobId}/files` | Interno | Reconcilia espacio y confirma limpieza después de detener escritores. |
 | Scraper | `GET /api/health`, `/api/health/live`, `/api/health/ready` | Operativo | Salud general, liveness y readiness. |
 | Scraper | `GET /internal/v1/metrics` | Interno | Expone métricas Prometheus del pool. |
@@ -201,6 +218,9 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | Scraper | `GET /internal/v1/sources/{sourceRef}/resolution` | Interno | Resuelve una fuente validada para descarga. |
 | Scraper | `GET /internal/v1/sources/{sourceRef}/size` | Interno | Revalida tamaño con HEAD sin retener conexión SQL durante la red; devuelve sourceRef y expectedSizeBytes, o null si no puede conocerlo. |
 | Scraper | `POST /internal/v1/content/descriptions/enqueue-missing`, `/internal/v1/content/descriptions/generate` | Interno | Encola descripciones o genera una concreta. |
+| Scraper | `POST /internal/v1/content/descriptions/regenerate` | Interno | Encola la regeneración de descripciones por procedencia. |
+| Scraper | `GET /internal/v1/linux/apps/{app_id}/sources/{source_ref}/profile`, `PUT /internal/v1/linux/apps/{app_id}/sources/{source_ref}/profile` | Interno | Consulta o guarda un perfil de instalación Linux. |
+| Scraper | `GET /internal/v1/linux/apps/{app_id}/dependencies`, `PUT /internal/v1/linux/apps/{app_id}/dependencies` | Interno | Consulta o guarda las dependencias Linux. |
 | Scraper | `POST /internal/v1/admin/apps/{appId}/manual-installer-inspections` | Interno | Crea una inspección de instaladores. |
 | Scraper | `GET /internal/v1/admin/apps/{appId}/manual-installer-inspections/current`, `/internal/v1/admin/apps/{appId}/manual-installer-inspections/{inspectionId}` | Interno | Recupera la inspección actual o una concreta. |
 | Scraper | `POST /internal/v1/admin/apps/{appId}/manual-installer-inspections/{inspectionId}/apply` | Interno | Aplica una inspección revalidada. |
@@ -209,13 +229,18 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | Scraper | `POST /internal/v1/admin/app-discoveries/{discoveryId}/apply` | Interno | Aplica un descubrimiento revalidado. |
 | Semántico | `GET /semantic/health`, `/semantic/health/live`, `/semantic/health/ready` | Operativo | Salud general, liveness y readiness. |
 | Semántico | `GET /internal/v1/metrics` | Interno | Expone métricas Prometheus. |
-| Semántico | `POST /internal/v1/semantic/search` | Interno | Ejecuta la búsqueda semántica. |
+| Semántico | `POST /internal/v1/semantic/search`, `/internal/v1/semantic/bundles/search` | Interno | Busca aplicaciones o bundles por similitud semántica. |
 | Webapp | `GET /healthz` | Público | Comprueba Nginx y el frontend. |
+| Webapp | `GET /openapi.yaml`, `/openapi.json` | Público | Sirve los contratos versionados de la API y de herramientas de IA, respectivamente. |
 | Java | `GET /actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness`, `/actuator/info`, `/actuator/prometheus` | Operativo | Salud, información y métricas de Core, Worker, Notification y Translation. |
 | Documentación | `GET /v3/api-docs`, `/swagger-ui/index.html` | Público en Core | OpenAPI y Swagger UI de Core. |
 | Documentación | `GET /openapi.json`, `/docs`, `/redoc` | Operativo | OpenAPI, Swagger UI y ReDoc de Scraper y Semántico. |
 
 </details>
+
+## Variables de entorno
+
+Compose GHCR usa el `.env` raíz. Las tablas indican los nombres de las plantillas locales y los equivalentes en GHCR cuando difieren.
 
 <details>
 <summary><strong>Globales</strong> — <code>.env.example</code></summary>
@@ -228,6 +253,7 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | `RABBITMQ_DEFAULT_USER`, `RABBITMQ_DEFAULT_PASS`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_HOST_PORT`, `RABBITMQ_MANAGEMENT_HOST_PORT`, `RABBITMQ_COMMAND_EXCHANGE`, `RABBITMQ_EVENT_EXCHANGE` | Acceso, puertos y exchanges de RabbitMQ. |
 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `MINIO_CORE_ACCESS_KEY`, `MINIO_CORE_SECRET_KEY`, `MINIO_WORKER_ACCESS_KEY`, `MINIO_WORKER_SECRET_KEY` | Identidades de administración, lectura y escritura de MinIO. |
 | `MINIO_API_HOST_PORT`, `MINIO_CONSOLE_HOST_PORT`, `MINIO_ENDPOINT`, `MINIO_ZIP_BUCKET`, `MINIO_ZIP_QUOTA`, `MINIO_STALE_UPLOADS_EXPIRY`, `MINIO_STALE_UPLOADS_CLEANUP_INTERVAL` | Red, bucket, cuota y limpieza de artefactos. |
+| `MINIO_PROMETHEUS_AUTH_TYPE` | Modo de autenticación de las métricas Prometheus de MinIO. |
 | `APP_PUBLIC_BASE_URL`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `NOTIFICATION_TOKEN_ENCRYPTION_KEY`, `SCRAPER_INTERNAL_SERVICE_TOKEN`, `SCRAPER_URL_PROTECTION_SECRET`, `SCRAPER_LLM_GROQ_API_KEY`, `SCRAPER_LLM_DEEPSEEK_API_KEY` | URL pública, integraciones y secretos compartidos. |
 | `CORE_API_ADMIN_USERNAME`, `CORE_API_ADMIN_EMAIL`, `CORE_API_ADMIN_PASSWORD`, `CORE_API_DOWNLOAD_OWNER_SECRET` | Bootstrap de administrador y firma de propietarios anónimos. Define `CORE_API_ADMIN_PASSWORD` antes de arrancar: entre 8 caracteres y 72 bytes UTF-8, con mayúscula, minúscula, número y carácter especial. |
 | `WEBAPP_HOST_PORT`, `CORE_API_HOST_PORT`, `SEMANTIC_SERVICE_HOST_PORT`, `NOTIFICATION_SERVICE_HOST_PORT`, `DOWNLOAD_WORKER_HOST_PORT`, `TRANSLATION_SERVICE_HOST_PORT` | Puertos publicados en el host. |
@@ -245,8 +271,13 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | `SCRAPER_SO_FILTER_CONCURRENCY`, `SCRAPER_SO_FILTER_MAX_ATTEMPTS` | Concurrencia y reintentos del filtro por sistema operativo. |
 | `SCRAPER_SCRAPE_CONCURRENCY`, `SCRAPER_CPU_THREAD_WORKERS`, `SCRAPER_SCHEDULER_TIMEZONE`, `SCRAPER_SCHEDULER_HOUR`, `SCRAPER_SCHEDULER_MINUTE`, `SCRAPER_RUN_ON_STARTUP`, `SCRAPER_SCRAPE_MAX_APPS`, `SCRAPER_SCRAPE_APP_TIMEOUT_SECONDS` | Workers, horario y alcance de cada barrido. |
 | `SCRAPER_WORKER_HEARTBEAT_INTERVAL_SECONDS`, `SCRAPER_WORKER_HEARTBEAT_STALE_SECONDS`, `SCRAPER_WORKER_FAILURE_THRESHOLD` | Salud de scheduler y workers. |
+| `SCRAPER_LLM_OPENAI_API_KEY`, `SCRAPER_LLM_OPENAI_BASE_URL`, `SCRAPER_LLM_OPENAI_MODEL` | Credencial opcional, URL y modelo de OpenAI para generar descripciones. |
 | `SCRAPER_LLM_GROQ_BASE_URL`, `SCRAPER_LLM_GROQ_MODEL`, `SCRAPER_LLM_GROQ_FALLBACK_MODELS`, `SCRAPER_LLM_DEEPSEEK_BASE_URL`, `SCRAPER_LLM_DEEPSEEK_MODEL`, `SCRAPER_LLM_MAX_CONCURRENCY`, `SCRAPER_LLM_MAX_APPS_PER_RUN`, `SCRAPER_LLM_REQUEST_TIMEOUT_SECONDS` | Proveedores, modelos y límites de generación. |
-| `SCRAPER_DATABASE_POOL_MAX`, `SCRAPER_DATABASE_MAX_OVERFLOW`, `SCRAPER_DATABASE_POOL_TIMEOUT_SECONDS`, `SCRAPER_DATABASE_POOL_RECYCLE_SECONDS` | Pool MySQL: `scraper-api` 4+2 y `scraper-scheduler` 8+4 en Compose. |
+| `SCRAPER_DATABASE_HOST`, `SCRAPER_DATABASE_PORT`, `SCRAPER_DATABASE_POOL_TIMEOUT_SECONDS`, `SCRAPER_DATABASE_POOL_RECYCLE_SECONDS` | Conexión MySQL, tiempo de espera y reciclaje de conexiones. |
+| `SCRAPER_DATABASE_POOL_MAX`, `SCRAPER_DATABASE_MAX_OVERFLOW` | Tamaño y conexiones extra de `scraper-api` en Compose local (4+2). |
+| `SCRAPER_SCHEDULER_DATABASE_POOL_MAX`, `SCRAPER_SCHEDULER_DATABASE_MAX_OVERFLOW` | Tamaño y conexiones extra de `scraper-scheduler` en Compose local (8+4). |
+| `SCRAPER_API_SCRAPER_DATABASE_POOL_MAX`, `SCRAPER_API_SCRAPER_DATABASE_MAX_OVERFLOW` | Límites equivalentes de `scraper-api` en Compose GHCR. |
+| `SCRAPER_SCHEDULER_SCRAPER_DATABASE_POOL_MAX`, `SCRAPER_SCHEDULER_SCRAPER_DATABASE_MAX_OVERFLOW` | Límites equivalentes de `scraper-scheduler` en Compose GHCR. |
 
 </details>
 
@@ -255,11 +286,12 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 
 | Variables | Uso |
 | --- | --- |
-| `CORE_API_SERVER_PORT`, `CORE_API_SCRAPER_API_URL`, `CORE_API_SEMANTIC_SERVICE_URL`, `CORE_API_DOWNLOAD_WORKER_URL`, `CORE_API_DOWNLOAD_WORKER_CAPACITY_TIMEOUT`, `CORE_API_SEMANTIC_REQUEST_TIMEOUT`, `CORE_API_SEMANTIC_ADMIN_REQUEST_TIMEOUT` | Puerto, servicios internos y timeouts HTTP. |
+| `CORE_API_SERVER_PORT`, `CORE_API_SCRAPER_API_URL`, `CORE_API_SEMANTIC_SERVICE_URL`, `CORE_API_DOWNLOAD_WORKER_URL`, `CORE_API_SEMANTIC_REQUEST_TIMEOUT` | Puerto, URLs internas y tiempo de espera del servicio semántico. |
 | `CORE_API_BCRYPT_STRENGTH`, `CORE_API_DB_POOL_MIN`, `CORE_API_DB_POOL_MAX`, `CORE_API_DB_POOL_TIMEOUT`, `CORE_API_AUTH_HASH_CONCURRENCY`, `CORE_API_AUTH_HASH_QUEUE`, `CORE_API_AUTH_HASH_WAIT` | Coste de hash, pool MySQL (2–5) y admisión de autenticación. |
 | `CORE_API_AUTH_LOGIN_MAX_PER_MINUTE`, `CORE_API_AUTH_MAGIC_LINK_MAX_PER_EMAIL_HOUR`, `CORE_API_AUTH_MAGIC_LINK_MAX_PER_IP_HOUR`, `CORE_API_SESSION_TIMEOUT`, `CORE_API_MAGIC_LINK_TTL`, `CORE_API_MAGIC_LINK_PENDING_CLEANUP_INTERVAL` | Rate limits de autenticación, caducidad de enlaces/sesiones y limpieza de solicitudes pendientes. |
 | `CORE_API_OUTBOX_DELAY`, `CORE_API_OUTBOX_CLAIM_LEASE`, `CORE_API_OUTBOX_CONFIRM_TIMEOUT`, `CORE_API_RETENTION_INTERVAL`, `CORE_API_MESSAGE_RETENTION`, `CORE_API_AUDIT_RETENTION`, `CORE_API_REQUIRE_HTTPS`, `CORE_API_COOKIE_SECURE` | Outbox, retención y seguridad HTTP/cookies. |
 | `DOWNLOAD_MAX_APPS`, `DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_HOUR`, `DOWNLOAD_ANONYMOUS_MAX_CREATES_PER_IP_HOUR`, `DOWNLOAD_SSE_HEARTBEAT` | Tamaño de selección, frecuencia de creación y SSE; la concurrencia depende de bytes, sin cuotas por cantidad de trabajos. |
+| `DOWNLOAD_ZIP_RETENTION` | Tiempo de retención de los ZIP de descarga. |
 | `CORE_API_CATALOG_CACHE_MAXIMUM_SIZE`, `CORE_API_CATALOG_CACHE_TTL`, `CORE_API_DOWNLOAD_EVENTS_QUEUE` | Caché de catálogo y cola de eventos. |
 
 </details>
@@ -273,7 +305,8 @@ Todas estas rutas exigen sesión `ADMIN`, salvo el login.
 | `DOWNLOAD_WORKER_COMMAND_EXCHANGE`, `DOWNLOAD_WORKER_EVENT_EXCHANGE`, `DOWNLOAD_WORKER_INPUT_ROUTING_KEY`, `DOWNLOAD_WORKER_INPUT_QUEUE`, `DOWNLOAD_WORKER_CANCELLATION_ROUTING_KEY`, `DOWNLOAD_WORKER_CANCELLATION_QUEUE`, `DOWNLOAD_WORKER_DLX`, `DOWNLOAD_WORKER_DLQ`, `DOWNLOAD_WORKER_CAPACITY_WAIT_QUEUE`, `DOWNLOAD_WORKER_SOURCE_RESOLVER_URL`, `DOWNLOAD_WORKER_CORE_API_URL` | Topología RabbitMQ y servicios internos. |
 | `DOWNLOAD_WORKER_CAPACITY_WAIT_DELAY`, `DOWNLOAD_WORKER_CANCELLATION_CONCURRENCY`, `DOWNLOAD_WORKER_RETRY_ATTEMPTS`, `DOWNLOAD_WORKER_RETRY_INITIAL_INTERVAL`, `DOWNLOAD_WORKER_RETRY_MULTIPLIER`, `DOWNLOAD_WORKER_RETRY_MAX_INTERVAL` | Espera de capacidad, cancelaciones y reintentos. |
 | `DOWNLOAD_WORKER_ARTIFACT_RETENTION`, `DOWNLOAD_WORKER_SOURCE_RESOLVER_TIMEOUT`, `DOWNLOAD_WORKER_CORE_API_TIMEOUT` | Retención y timeouts internos. |
-| `DOWNLOAD_WORKER_MAX_ITEMS`, `DOWNLOAD_WORKER_MAX_FILE_SIZE`, `DOWNLOAD_WORKER_MAX_TOTAL_SIZE`, `DOWNLOAD_WORKER_MAX_REDIRECTS`, `DOWNLOAD_WORKER_CONNECT_TIMEOUT`, `DOWNLOAD_WORKER_REQUEST_TIMEOUT` | Límites de cada descarga. |
+| `DOWNLOAD_WORKER_MAX_ITEMS`, `DOWNLOAD_WORKER_MAX_FILE_SIZE`, `DOWNLOAD_WORKER_MAX_REDIRECTS`, `DOWNLOAD_WORKER_CONNECT_TIMEOUT`, `DOWNLOAD_WORKER_REQUEST_TIMEOUT` | Límites de cada descarga. |
+| `DOWNLOAD_WORKER_LINUX_INSTALLER_ENABLED` | Habilita la generación del instalador Linux en el worker. |
 | `DOWNLOAD_WORKER_PER_JOB_CONCURRENCY`, `DOWNLOAD_WORKER_PACKAGING_CONCURRENCY`, `DOWNLOAD_WORKER_ZIP_LEVEL` | Conexiones por trabajo y control de CPU: Oracle usa dos empaquetados globales por servidor y nivel ZIP cero. Véase [escalado local](docs/deployment/escalado-local.md). |
 | `DOWNLOAD_WORKER_MIN_FREE_SPACE`, `DOWNLOAD_WORKER_MULTIPART_PART_SIZE`, `DOWNLOAD_WORKER_TEMP_DIRECTORY` | Margen libre del host, subida multipart y temporal; no hay exclusividad por tamaño. |
 | `DOWNLOAD_WORKER_INBOX_LEASE`, `DOWNLOAD_WORKER_RETENTION_INTERVAL`, `DOWNLOAD_WORKER_MESSAGE_RETENTION`, `DOWNLOAD_WORKER_HEARTBEAT_INTERVAL`, `DOWNLOAD_WORKER_HEARTBEAT_STALE_AFTER` | Lease, limpieza y salud del worker. |
@@ -300,11 +333,15 @@ La búsqueda semántica utiliza los vectores vigentes aunque la cobertura sea pa
 | Variables | Uso |
 | --- | --- |
 | `SEMANTIC_MODEL_DIR`, `SEMANTIC_MODEL_RUNTIME_CACHE_DIR`, `SEMANTIC_MODEL_MANIFEST_NAME`, `SEMANTIC_DEVICE` | Ranura local, caché de inferencia y contrato del modelo aprovisionado. |
+| `SEMANTIC_MODELS_VOLUME_NAME` | Nombre del volumen Docker que contiene los modelos. |
 | `SEMANTIC_CANDIDATE_LIMIT`, `SEMANTIC_INDEX_BATCH_SIZE`, `SEMANTIC_INDEX_INTERVAL_SECONDS`, `SEMANTIC_INDEX_LEASE_SECONDS`, `SEMANTIC_SEARCH_TIMEOUT_SECONDS` | Búsqueda e indexación. |
+| `SEMANTIC_DATABASE_HOST`, `SEMANTIC_DATABASE_PORT` | Host y puerto de PostgreSQL. |
 | `SEMANTIC_API_DB_POOL_MIN`, `SEMANTIC_API_DB_POOL_MAX`, `SEMANTIC_INDEXER_DB_POOL_MIN`, `SEMANTIC_INDEXER_DB_POOL_MAX`, `SEMANTIC_DB_POOL_TIMEOUT_SECONDS`, `SEMANTIC_DB_POOL_MAX_LIFETIME_SECONDS` | Pools PostgreSQL por proceso. |
 | `SEMANTIC_SEARCH_CONCURRENCY`, `SEMANTIC_SEARCH_CAPACITY_WAIT_SECONDS`, `SEMANTIC_BACKGROUND_TIMEZONE`, `SEMANTIC_BACKGROUND_START_HOUR`, `SEMANTIC_BACKGROUND_END_HOUR` | Admisión y ventana de fondo. |
 | `SEMANTIC_WORKER_HEARTBEAT_INTERVAL_SECONDS`, `SEMANTIC_WORKER_HEARTBEAT_STALE_SECONDS`, `SEMANTIC_WORKER_FAILURE_THRESHOLD` | Salud del indexador. |
-| `SEMANTIC_DATABASE_ROLE` | Rol del proceso: `api` o `indexer`. |
+| `SEMANTIC_DATABASE_ROLE`, `SEMANTIC_INDEXER_DATABASE_ROLE` | Roles `api` e `indexer` en Compose local. |
+| `SEMANTIC_SERVICE_SEMANTIC_DATABASE_ROLE`, `SEMANTIC_INDEXER_SEMANTIC_DATABASE_ROLE` | Roles equivalentes en Compose GHCR. |
+| `SEMANTIC_CORE_API_URL`, `SEMANTIC_SCRAPER_API_URL` | URLs de Core y Scraper, que proporcionan los documentos de bundles y aplicaciones para el índice. |
 
 </details>
 
